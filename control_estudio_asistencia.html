@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Control de Estudio — Completo</title>
+  <style>
+    :root{
+      --turq:#18b0b9;
+      --turq-light:#8fe0e6;
+      --bg:#f4fbfc;
+      --card:#ffffff;
+      --muted:#6b7280;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,Arial;background:var(--bg);color:#083136}
+    .wrap{max-width:1000px;margin:28px auto;padding:20px}
+    .card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 6px 16px rgba(0,0,0,0.05);margin-bottom:18px}
+    h1,h2{color:var(--turq);margin-top:0}
+    .item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #eef6f7}
+    button{padding:8px 14px;border-radius:8px;border:0;background:var(--turq);color:white;font-weight:600;cursor:pointer}
+    button.ghost{background:transparent;color:var(--turq);border:1px solid var(--turq)}
+    input,select{padding:10px;border-radius:8px;border:1px solid #dbecee}
+    .flex{display:flex;gap:10px;flex-wrap:wrap}
+    .pill{background:#e9fdff;border:1px solid rgba(24,176,185,0.15);padding:6px 10px;border-radius:999px;font-size:13px}
+    .calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:12px}
+    .day{padding:10px;border-radius:10px;background:white;box-shadow:0 2px 8px rgba(0,0,0,0.05);text-align:center;cursor:pointer}
+    .day.active{background:var(--turq);color:white}
+    canvas{max-width:100%;height:280px !important;margin-top:10px}
+    .login-box{max-width:360px;margin:0 auto;text-align:center}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+
+<!-- LOGIN DE ESTUDIANTE -->
+<div id="loginStudent" style="position:fixed; inset:0; background:white; display:flex; flex-direction:column; justify-content:center; align-items:center; z-index:9999;">
+  <h2 style="color:var(--turq); margin-bottom:12px;">Acceso del Estudiante</h2>
+  <input id="studentPinInput" type="password" placeholder="PIN de estudiante" style="padding:10px; border-radius:8px; width:220px; border:1px solid #dbecee; margin-bottom:10px;">
+  <button id="studentPinBtn" style="padding:10px 16px; border-radius:8px; background:var(--turq); color:white; border:0; font-weight:600; cursor:pointer;">Entrar</button>
+  <p class="small" style="margin-top:14px; color:var(--muted);">PIN inicial: <strong>0000</strong></p>
+</div>
+<script>
+  const STUDENT_PIN_KEY = 'control_student_pin';
+  function loadStudentPin(){ return localStorage.getItem(STUDENT_PIN_KEY) || '0000'; }
+  function saveStudentPin(p){ localStorage.setItem(STUDENT_PIN_KEY, p); }
+
+  // Evento de login
+  document.getElementById('studentPinBtn').onclick = ()=>{
+    const entered = document.getElementById('studentPinInput').value.trim();
+    if(entered === loadStudentPin()){
+      document.getElementById('loginStudent').style.display = 'none';
+    } else {
+      alert('PIN incorrecto');
+    }
+  }
+
+  // Permitir Enter
+  document.getElementById('studentPinInput').addEventListener('keypress', e=>{
+    if(e.key === 'Enter') document.getElementById('studentPinBtn').click();
+  });
+</script>
+<div class="wrap" id="app" class="hidden">
+
+  <header class="card">
+    <h1>Control Completo de Estudio</h1>
+    <p class="small">Calendario · Asistencia · Gráficas · Guardado local · Login ligero</p>
+  </header>
+
+  <section class="card">
+    <h2>Selecciona Día del Calendario</h2>
+    <div id="calendario" class="calendar"></div>
+  </section>
+
+  <section class="card">
+    <h2>Agregar Curso y Tema para el Día</h2>
+    <div class="flex">
+      <input id="curso" type="text" placeholder="Curso" />
+      <input id="tema" type="text" placeholder="Tema" />
+      <button id="addBtn">Agregar</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Cursos del Día Seleccionado</h2>
+    <div id="lista"></div>
+    <div id="resumen" class="flex" style="margin-top:12px"></div>
+    <button id="limpiar" class="ghost" style="margin-top:12px">Limpiar Asistencias</button>
+  </section>
+
+  <section class="card">
+    <h2>Progreso Semanal</h2>
+    <canvas id="grafica"></canvas>
+  </section>
+
+</div>
+
+<!-- Login simple -->
+<div id="login" class="login-box card">
+  <h2>Ingresar</h2>
+  <input id="pwd" type="password" placeholder="Contraseña" style="width:100%;margin-bottom:12px" />
+  <button id="loginBtn" style="width:100%">Entrar</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+const PASS = "1234"; // Cambia la contraseña aquí
+const KEY = "control_estudio_full_v1";
+const DAYS = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
+let selectedDay = new Date().getDay();
+
+function load(){
+  return JSON.parse(localStorage.getItem(KEY) || "{}");
+}
+function save(data){
+  localStorage.setItem(KEY, JSON.stringify(data));
+}
+function ensureDay(data, day){
+  if(!data[day]) data[day] = [];
+}
+
+function renderCalendar(){
+  const cal = document.getElementById("calendario");
+  cal.innerHTML = "";
+  DAYS.forEach((d,i)=>{
+    const div = document.createElement("div");
+    div.className = "day" + (i===selectedDay ? " active":"");
+    div.textContent = d;
+    div.onclick = ()=>{selectedDay=i; renderCalendar(); renderList(); renderChart();};
+    cal.appendChild(div);
+  })
+}
+
+function renderList(){
+  const data = load();
+  ensureDay(data, selectedDay);
+  const lista = document.getElementById("lista");
+  lista.innerHTML = "";
+  data[selectedDay].forEach(item=>{
+    const div = document.createElement("div");
+    div.className="item";
+    const left = document.createElement("div");
+    left.innerHTML = `<strong>${item.curso}</strong><br><span class="small">${item.tema}</span>`;
+    const right = document.createElement("input");
+    right.type="checkbox";
+    right.checked = item.hecho;
+    right.onchange = ()=>{
+      item.hecho = right.checked;
+      item.timestamp = right.checked ? new Date().toISOString():null;
+      save(data);
+      renderResumen();
+      renderChart();
+    };
+    div.append(left,right);
+    lista.appendChild(div);
+  });
+  renderResumen();
+}
+
+function renderResumen(){
+  const data = load(); ensureDay(data, selectedDay);
+  const total = data[selectedDay].length;
+  const done = data[selectedDay].filter(x=>x.hecho).length;
+  const res=document.getElementById("resumen");
+  res.innerHTML="";
+  res.innerHTML += `<div class='pill'>Total: ${total}</div>`;
+  res.innerHTML += `<div class='pill'>Completados: ${done}</div>`;
+}
+
+document.getElementById("addBtn").onclick=()=>{
+  const curso = document.getElementById("curso").value.trim();
+  const tema = document.getElementById("tema").value.trim();
+  if(!curso||!tema) return alert("Completa ambos campos");
+  const data = load(); ensureDay(data, selectedDay);
+  data[selectedDay].push({curso,tema,hecho:false,timestamp:null});
+  save(data);
+  document.getElementById("curso").value="";
+  document.getElementById("tema").value="";
+  renderList(); renderChart();
+};
+
+document.getElementById("limpiar").onclick=()=>{
+  if(!confirm("¿Limpiar todas las asistencias del día?")) return;
+  const data = load(); ensureDay(data, selectedDay);
+  data[selectedDay] = data[selectedDay].map(x=>({...x, hecho:false, timestamp:null}));
+  save(data);
+  renderList(); renderChart();
+};
+
+let chart;
+function renderChart(){
+  const ctx = document.getElementById("grafica");
+  const data = load();
+  const values = DAYS.map((_,i)=>{
+    ensureDay(data,i);
+    if(data[i].length===0) return 0;
+    return data[i].filter(x=>x.hecho).length;
+  });
+  if(chart) chart.destroy();
+  chart = new Chart(ctx,{
+    type:"bar",
+    data:{
+      labels:DAYS,
+      datasets:[{
+        label:"Temas estudiados",
+        data:values
+      }]
+    },
+    options:{responsive:true}
+  });
+}
+
+document.getElementById("loginBtn").onclick=()=>{
+  const v = document.getElementById("pwd").value;
+  if(v===PASS){
+    document.getElementById("login").classList.add("hidden");
+    document.getElementById("app").classList.remove("hidden");
+    renderCalendar(); renderList(); renderChart();
+  } else alert("Contraseña incorrecta");
+};
+</script>
+
+  
+  <!-- Panel de Administración -->
+  <div id="adminPanel" class="card" style="display:none; position:fixed; bottom:20px; right:20px; max-width:320px; z-index:999; background:white; border:2px solid var(--turq)">
+    <h2>Administrador</h2>
+
+    <h3 style="color:var(--turq); margin-top:14px">PIN del Estudiante</h3>
+    <input id="newStudentPin" type="password" placeholder="Nuevo PIN para ella" style="width:100%; margin-bottom:8px; padding:10px; border-radius:8px; border:1px solid #dbecee;">
+    <button id="saveStudentPin">Guardar PIN Estudiante</button>
+
+    <script>
+      document.getElementById('saveStudentPin').onclick = ()=>{
+        const v = document.getElementById('newStudentPin').value.trim();
+        if(!v) return alert('Ingresa un PIN válido');
+        saveStudentPin(v);
+        alert('PIN de estudiante actualizado');
+        document.getElementById('newStudentPin').value = '';
+      }
+    </script>
+
+    <h2>Administrador</h2>
+    <p class="small">Configura cursos, temas y el PIN de acceso.</p>
+
+    <label>Nuevo PIN:</label>
+    <input id="newPin" type="password" placeholder="PIN nuevo" style="width:100%; margin-bottom:8px">
+    <button id="savePin">Guardar PIN</button>
+
+    <hr style="margin:14px 0; border:none; border-top:1px solid #d9e9ea">
+
+    <h3 style="color:var(--turq); margin:0 0 6px">Control de Cursos</h3>
+    <button id="clearCourses" class="ghost" style="width:100%; margin-top:4px">Borrar todos los cursos</button>
+  </div>
+
+  <script>
+    // ADMIN LOGIC
+    const ADMIN_KEY = 'control_admin_pin';
+
+    function loadPin(){
+      return localStorage.getItem(ADMIN_KEY) || '1234'; // Pin por defecto
+    }
+    function savePinValue(p){
+      localStorage.setItem(ADMIN_KEY, p);
+    }
+
+    // Mostrar admin panel con Ctrl + A
+    document.addEventListener('keydown', e=>{
+      if(e.ctrlKey && e.key.toLowerCase()==='a'){
+        const p = prompt('PIN de administrador');
+        if(p === loadPin()){
+          document.getElementById('adminPanel').style.display = 'block';
+        }else{
+          alert('PIN incorrecto');
+        }
+      }
+    })
+
+    // Guardar nuevo PIN
+    document.getElementById('savePin').onclick = ()=>{
+      const n = document.getElementById('newPin').value.trim();
+      if(!n) return alert('Ingresa un PIN');
+      savePinValue(n);
+      alert('PIN actualizado');
+      document.getElementById('newPin').value = '';
+    }
+
+    // Eliminar todos los cursos
+    document.getElementById('clearCourses').onclick = ()=>{
+      if(!confirm('¿Seguro que deseas eliminar todos los cursos registrados?')) return;
+      save([]);
+      render();
+      alert('Cursos eliminados');
+    }
+  </script>
+
+</body>
+</html>
